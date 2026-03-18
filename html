@@ -1,0 +1,804 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Brain, Star, Activity, ArrowLeft, Play, RotateCcw, Award, Target, Settings, Eye, Hash, Grid, User } from 'lucide-react';
+
+// --- COMPONENTES UI COMPARTIDOS ---
+
+const GlassPanel = ({ children, className = '', mode, ...props }) => {
+  const baseStyle = "backdrop-blur-xl border rounded-3xl shadow-2xl transition-all duration-500";
+  const modeStyle = mode === 'kids' 
+    ? "bg-white/60 border-white/80 shadow-[0_8px_32px_0_rgba(31,38,135,0.1)] text-slate-800" 
+    : "bg-[#0C1B33]/60 border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] text-slate-100";
+  
+  return (
+    <div className={`${baseStyle} ${modeStyle} ${className}`} {...props}>
+      {children}
+    </div>
+  );
+};
+
+const Button = ({ onClick, children, variant = 'primary', mode, className = '', disabled = false }) => {
+  const base = "relative overflow-hidden rounded-2xl font-bold transition-all duration-200 active:scale-95 flex items-center justify-center gap-2 px-6 py-3";
+  
+  let colors = "";
+  if (mode === 'kids') {
+    colors = variant === 'primary' 
+      ? "bg-gradient-to-r from-[#00FFCC] to-[#00E5B8] text-teal-900 shadow-lg shadow-teal-500/30 hover:shadow-teal-500/50"
+      : "bg-white text-slate-700 shadow-md hover:bg-slate-50";
+  } else {
+    colors = variant === 'primary'
+      ? "bg-gradient-to-r from-[#CD7F32] to-[#B87333] text-white shadow-lg shadow-[#CD7F32]/30 hover:shadow-[#CD7F32]/50 border border-[#CD7F32]/50"
+      : "bg-white/10 text-white hover:bg-white/20 border border-white/10";
+  }
+
+  if (disabled) colors = "bg-gray-400/50 text-gray-500 cursor-not-allowed opacity-50";
+
+  return (
+    <button onClick={onClick} disabled={disabled} className={`${base} ${colors} ${className}`}>
+      {children}
+    </button>
+  );
+};
+
+// --- JUEGOS MODO NIÑOS ---
+
+const CatchTheStar = ({ onFinish, config }) => {
+  const [score, setScore] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [starPos, setStarPos] = useState({ x: 50, y: 0 });
+  const [playerX, setPlayerX] = useState(50);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const containerRef = useRef(null);
+  const requestRef = useRef();
+
+  const targetScore = config.duration === 'mini' ? 5 : 10;
+  const speedMultiplier = config.speed === 'slow' ? 0.5 : config.speed === 'fast' ? 1.5 : 1;
+
+  const handleMove = (e) => {
+    if (!containerRef.current || !isPlaying) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    let clientX = e.clientX;
+    if (e.touches && e.touches.length > 0) clientX = e.touches[0].clientX;
+    let x = ((clientX - rect.left) / rect.width) * 100;
+    setPlayerX(Math.max(5, Math.min(95, x)));
+  };
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    let speed = (0.5 + (score * 0.05)) * speedMultiplier;
+    let currentY = starPos.y;
+
+    const update = () => {
+      currentY += speed;
+      if (currentY > 85 && currentY < 95) {
+        if (Math.abs(starPos.x - playerX) < 15) {
+          setScore(s => s + 1);
+          setStarPos({ x: Math.random() * 80 + 10, y: 0 });
+          currentY = 0;
+          if (score + 1 >= targetScore) {
+            setIsPlaying(false);
+            setTimeout(() => onFinish({ score: targetScore, status: 'Victoria' }), 1000);
+          }
+        }
+      } else if (currentY > 100) {
+        setLives(l => {
+          const newLives = l - 1;
+          if (newLives <= 0) {
+            setIsPlaying(false);
+            setTimeout(() => onFinish({ score, status: 'Derrota' }), 1000);
+          }
+          return newLives;
+        });
+        setStarPos({ x: Math.random() * 80 + 10, y: 0 });
+        currentY = 0;
+      } else {
+        setStarPos(prev => ({ ...prev, y: currentY }));
+      }
+      requestRef.current = requestAnimationFrame(update);
+    };
+    requestRef.current = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(requestRef.current);
+  }, [isPlaying, starPos.x, playerX, score, onFinish, targetScore, speedMultiplier]);
+
+  return (
+    <div className="w-full h-[60vh] relative overflow-hidden bg-gradient-to-b from-blue-900 to-indigo-900 rounded-3xl cursor-none touch-none" ref={containerRef} onMouseMove={handleMove} onTouchMove={handleMove}>
+      <div className="absolute top-4 left-4 right-4 flex justify-between text-white font-bold text-xl z-10">
+        <div className="flex items-center gap-2"><Star className="text-yellow-400 fill-yellow-400" /> {score}/{targetScore}</div>
+        <div className="flex items-center gap-2 text-red-400">{'❤️'.repeat(lives)}</div>
+      </div>
+      <div className="absolute w-8 h-8 text-yellow-300 transition-transform duration-75" style={{ left: `${starPos.x}%`, top: `${starPos.y}%`, transform: 'translate(-50%, -50%)', filter: 'drop-shadow(0 0 10px rgba(255,215,0,0.8))' }}>
+        <Star className="w-full h-full fill-current animate-spin-slow" />
+      </div>
+      <div className="absolute bottom-4 w-24 h-6 bg-[#00FFCC] rounded-full shadow-[0_0_20px_#00FFCC] transition-transform duration-75" style={{ left: `${playerX}%`, transform: 'translateX(-50%)' }} />
+    </div>
+  );
+};
+
+const ColorMemory = ({ onFinish, config }) => {
+  const colors = [
+    { id: 0, bg: 'bg-red-400', active: 'bg-red-300 shadow-[0_0_30px_#f87171]' },
+    { id: 1, bg: 'bg-blue-400', active: 'bg-blue-300 shadow-[0_0_30px_#60a5fa]' },
+    { id: 2, bg: 'bg-green-400', active: 'bg-green-300 shadow-[0_0_30px_#4ade80]' },
+    { id: 3, bg: 'bg-yellow-400', active: 'bg-yellow-300 shadow-[0_0_30px_#facc15]' }
+  ];
+
+  const [sequence, setSequence] = useState([]);
+  const [playerStep, setPlayerStep] = useState(0);
+  const [isShowing, setIsShowing] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(null);
+  const [level, setLevel] = useState(1);
+
+  const targetLevel = config.duration === 'mini' ? 4 : 8;
+  const showTime = config.speed === 'slow' ? 1000 : config.speed === 'fast' ? 500 : 800;
+
+  const addNewColor = useCallback(() => setSequence(prev => [...prev, Math.floor(Math.random() * 4)]), []);
+
+  useEffect(() => { addNewColor(); }, [addNewColor]);
+
+  useEffect(() => {
+    if (sequence.length === 0) return;
+    let step = 0;
+    setIsShowing(true);
+    const interval = setInterval(() => {
+      if (step >= sequence.length) {
+        clearInterval(interval);
+        setActiveIndex(null);
+        setIsShowing(false);
+        return;
+      }
+      setActiveIndex(sequence[step]);
+      setTimeout(() => setActiveIndex(null), showTime / 2);
+      step++;
+    }, showTime);
+    return () => clearInterval(interval);
+  }, [sequence, showTime]);
+
+  const handleColorClick = (id) => {
+    if (isShowing) return;
+    setActiveIndex(id);
+    setTimeout(() => setActiveIndex(null), 200);
+
+    if (id === sequence[playerStep]) {
+      if (playerStep === sequence.length - 1) {
+        if (level >= targetLevel) {
+          setTimeout(() => onFinish({ nivel: level, estado: 'Completado' }), 1000);
+        } else {
+          setTimeout(() => {
+            setLevel(l => l + 1);
+            setPlayerStep(0);
+            addNewColor();
+          }, 1000);
+        }
+      } else {
+        setPlayerStep(p => p + 1);
+      }
+    } else {
+      onFinish({ nivel: level, estado: 'Falló secuencia' });
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-8 py-8">
+      <h3 className="text-2xl font-bold text-slate-700">Nivel {level} / {targetLevel}</h3>
+      <div className="grid grid-cols-2 gap-4 w-64 h-64">
+        {colors.map((c) => (
+          <button key={c.id} onClick={() => handleColorClick(c.id)} disabled={isShowing}
+            className={`rounded-3xl transition-all duration-200 ${c.bg} ${activeIndex === c.id ? c.active + ' scale-105' : 'scale-100 opacity-80'} ${isShowing ? 'cursor-default' : 'cursor-pointer hover:opacity-100'}`} />
+        ))}
+      </div>
+      <p className="text-slate-500 font-medium h-6">{isShowing ? "Observa la secuencia..." : "¡Tu turno!"}</p>
+    </div>
+  );
+};
+
+const CountAndLearn = ({ onFinish, config }) => {
+  const [targetCount, setTargetCount] = useState(0);
+  const [options, setOptions] = useState([]);
+  const [round, setRound] = useState(1);
+  const [score, setScore] = useState(0);
+  const targetRounds = config.duration === 'mini' ? 3 : 6;
+  
+  const emojis = ['🍎', '🐶', '🚗', '🎈', '⭐'];
+  const [activeEmoji, setActiveEmoji] = useState('🍎');
+
+  const generateRound = useCallback(() => {
+    const maxCount = config.speed === 'fast' ? 12 : config.speed === 'slow' ? 5 : 8;
+    const count = Math.floor(Math.random() * maxCount) + 1;
+    setTargetCount(count);
+    setActiveEmoji(emojis[Math.floor(Math.random() * emojis.length)]);
+    
+    let opts = [count];
+    while(opts.length < 3) {
+      let randomOpt = Math.floor(Math.random() * maxCount) + 1;
+      if (!opts.includes(randomOpt)) opts.push(randomOpt);
+    }
+    setOptions(opts.sort(() => Math.random() - 0.5));
+  }, [config.speed]);
+
+  useEffect(() => { generateRound(); }, [generateRound]);
+
+  const handleSelect = (num) => {
+    if (num === targetCount) setScore(s => s + 1);
+    if (round >= targetRounds) {
+      onFinish({ aciertos: score + (num === targetCount ? 1 : 0), rondas: targetRounds });
+    } else {
+      setRound(r => r + 1);
+      generateRound();
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-6 py-6 text-center">
+      <h3 className="text-xl font-bold text-slate-700">Ronda {round}/{targetRounds}</h3>
+      <p className="text-slate-600">¿Cuántos objetos hay?</p>
+      <div className="flex flex-wrap justify-center gap-4 w-64 min-h-[120px] bg-white/50 p-4 rounded-2xl">
+        {Array.from({ length: targetCount }).map((_, i) => (
+          <span key={i} className="text-4xl animate-bounce" style={{ animationDelay: `${i * 0.1}s` }}>{activeEmoji}</span>
+        ))}
+      </div>
+      <div className="flex gap-4 mt-4">
+        {options.map(opt => (
+          <button key={opt} onClick={() => handleSelect(opt)} className="w-16 h-16 bg-white rounded-2xl shadow-md text-3xl font-bold text-teal-600 hover:bg-teal-50 hover:scale-105 transition-all">
+            {opt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const FindTheAnimal = ({ onFinish, config }) => {
+  const animals = ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮'];
+  const [targetAnimal, setTargetAnimal] = useState('');
+  const [grid, setGrid] = useState([]);
+  const [round, setRound] = useState(1);
+  const [score, setScore] = useState(0);
+  const targetRounds = config.duration === 'mini' ? 3 : 6;
+  const gridSize = config.speed === 'fast' ? 16 : config.speed === 'slow' ? 6 : 9;
+
+  const generateRound = useCallback(() => {
+    const target = animals[Math.floor(Math.random() * animals.length)];
+    setTargetAnimal(target);
+    let newGrid = [target];
+    while(newGrid.length < gridSize) {
+      let randomAnimal = animals[Math.floor(Math.random() * animals.length)];
+      if (randomAnimal !== target) newGrid.push(randomAnimal);
+    }
+    setGrid(newGrid.sort(() => Math.random() - 0.5));
+  }, [gridSize]);
+
+  useEffect(() => { generateRound(); }, [generateRound]);
+
+  const handleSelect = (animal) => {
+    if (animal === targetAnimal) setScore(s => s + 1);
+    if (round >= targetRounds) {
+      onFinish({ aciertos: score + (animal === targetAnimal ? 1 : 0), rondas: targetRounds });
+    } else {
+      setRound(r => r + 1);
+      generateRound();
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-6 py-6 text-center">
+      <h3 className="text-xl font-bold text-slate-700">Ronda {round}/{targetRounds}</h3>
+      <p className="text-slate-600 flex items-center gap-2">Encuentra a: <span className="text-4xl bg-white/50 p-2 rounded-xl">{targetAnimal}</span></p>
+      <div className={`grid gap-3 ${gridSize > 9 ? 'grid-cols-4' : 'grid-cols-3'}`}>
+        {grid.map((animal, i) => (
+          <button key={i} onClick={() => handleSelect(animal)} className="w-16 h-16 bg-white rounded-2xl shadow-md text-4xl flex items-center justify-center hover:bg-teal-50 hover:scale-105 transition-all">
+            {animal}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// --- JUEGOS MODO ADULTOS ---
+
+const StroopTest = ({ onFinish, config }) => {
+  const WORDS = ["ROJO", "AZUL", "VERDE", "AMARILLO"];
+  const COLORS = ["text-red-500", "text-blue-500", "text-green-500", "text-yellow-500"];
+  
+  const [currentRound, setCurrentRound] = useState(0);
+  const [gameState, setGameState] = useState('waiting');
+  const [currentWord, setCurrentWord] = useState('');
+  const [currentColorClass, setCurrentColorClass] = useState('');
+  
+  const [metrics, setMetrics] = useState({ aciertos: 0, errores: 0, omisiones: 0, tiempos: [] });
+  const showTimeRef = useRef(0);
+  const timeoutRef = useRef(null);
+
+  const targetRounds = config.duration === 'mini' ? 5 : 12;
+  const timeLimit = config.speed === 'slow' ? 2000 : config.speed === 'fast' ? 1000 : 1500;
+
+  const nextRound = useCallback(() => {
+    if (currentRound >= targetRounds) {
+      const avgTime = metrics.tiempos.length > 0 ? (metrics.tiempos.reduce((a,b)=>a+b,0) / metrics.tiempos.length).toFixed(0) : 0;
+      onFinish({ ...metrics, tiempoMedio: avgTime + "ms", rondas: targetRounds });
+      return;
+    }
+    setGameState('showing');
+    const isTarget = Math.random() < 0.4; 
+    let wordText = isTarget ? "AZUL" : WORDS[Math.floor(Math.random() * WORDS.length)];
+    setCurrentWord(wordText);
+    setCurrentColorClass(COLORS[Math.floor(Math.random() * COLORS.length)]);
+    setCurrentRound(r => r + 1);
+    showTimeRef.current = Date.now();
+
+    timeoutRef.current = setTimeout(() => {
+      if (wordText === "AZUL") setMetrics(m => ({ ...m, omisiones: m.omisiones + 1 }));
+      nextRound();
+    }, timeLimit);
+  }, [currentRound, metrics, onFinish, targetRounds, timeLimit]);
+
+  useEffect(() => {
+    const t = setTimeout(nextRound, 1000);
+    return () => clearTimeout(t);
+  }, []);
+
+  const handleReaction = () => {
+    if (gameState !== 'showing') return;
+    clearTimeout(timeoutRef.current);
+    const reactionTime = Date.now() - showTimeRef.current;
+    
+    if (currentWord === "AZUL") {
+      setMetrics(m => ({ ...m, aciertos: m.aciertos + 1, tiempos: [...m.tiempos, reactionTime] }));
+    } else {
+      setMetrics(m => ({ ...m, errores: m.errores + 1 }));
+    }
+    setGameState('waiting');
+    setTimeout(nextRound, 500);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => { if (e.code === 'Space') { e.preventDefault(); handleReaction(); } };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleReaction]);
+
+  return (
+    <div className="flex flex-col items-center justify-center py-12 gap-8 text-center">
+      <div className="space-y-2">
+        <h3 className="text-xl text-slate-400 font-light">Inhibición y Reacción</h3>
+        <p className="text-sm text-slate-500">Presiona Reaccionar <strong className="text-white">SOLO</strong> cuando leas "AZUL".</p>
+      </div>
+      <div className="h-32 flex items-center justify-center">
+        {gameState === 'showing' ? (
+          <h1 className={`text-6xl font-black tracking-widest uppercase drop-shadow-[0_0_15px_rgba(255,255,255,0.2)] ${currentColorClass}`}>{currentWord}</h1>
+        ) : <div className="text-slate-600 text-2xl font-light animate-pulse">+</div>}
+      </div>
+      <Button onClick={handleReaction} mode="adults" className="w-64 py-6 text-xl tracking-wider">REACCIONAR</Button>
+      <div className="text-slate-500 text-sm">Ronda {currentRound}/{targetRounds}</div>
+    </div>
+  );
+};
+
+const AdvancedMemory = ({ onFinish, config }) => {
+  const [level, setLevel] = useState(config.speed === 'fast' ? 4 : 3); 
+  const [sequence, setSequence] = useState([]);
+  const [displayNumber, setDisplayNumber] = useState(null);
+  const [phase, setPhase] = useState('start');
+  const [userInput, setUserInput] = useState('');
+  const [roundsPlayed, setRoundsPlayed] = useState(0);
+
+  const targetRounds = config.duration === 'mini' ? 3 : 5;
+  const showTime = config.speed === 'slow' ? 1500 : config.speed === 'fast' ? 600 : 1000;
+
+  const generateSequence = useCallback(() => {
+    const seq = Array.from({length: level}, () => Math.floor(Math.random() * 10));
+    setSequence(seq);
+    return seq;
+  }, [level]);
+
+  const startLevel = useCallback(() => {
+    const seq = generateSequence();
+    setPhase('showing');
+    setUserInput('');
+    let step = 0;
+    const interval = setInterval(() => {
+      if (step >= seq.length) {
+        clearInterval(interval);
+        setDisplayNumber(null);
+        setPhase('input');
+        return;
+      }
+      setDisplayNumber(seq[step]);
+      step++;
+    }, showTime);
+  }, [generateSequence, showTime]);
+
+  const handleInput = (num) => {
+    if (phase !== 'input') return;
+    const newVal = userInput + num.toString();
+    setUserInput(newVal);
+
+    if (newVal.length === sequence.length) {
+      if (roundsPlayed + 1 >= targetRounds) {
+        setTimeout(() => onFinish({ nivelFinal: level, estado: newVal === sequence.join('') ? 'Éxito final' : 'Fallo final' }), 1000);
+      } else {
+        if (newVal === sequence.join('')) {
+          setTimeout(() => { setLevel(l => l + 1); setRoundsPlayed(r=>r+1); setPhase('start'); }, 1000);
+        } else {
+          setTimeout(() => onFinish({ nivelFinal: level, estado: 'Cometió error' }), 1000);
+        }
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (phase === 'start') {
+      const t = setTimeout(startLevel, 1000);
+      return () => clearTimeout(t);
+    }
+  }, [phase, startLevel]);
+
+  return (
+    <div className="flex flex-col items-center gap-8 py-8 text-center">
+      <div className="space-y-2">
+        <h3 className="text-xl text-slate-400 font-light">Memoria Numérica (Ronda {roundsPlayed + 1}/{targetRounds})</h3>
+        <p className="text-sm text-slate-500">Memoriza la secuencia.</p>
+      </div>
+      <div className="h-32 flex items-center justify-center">
+        {phase === 'showing' && displayNumber !== null && (
+          <h1 className="text-8xl font-light text-white drop-shadow-[0_0_20px_rgba(205,127,50,0.5)]">{displayNumber}</h1>
+        )}
+        {phase === 'input' && (
+          <div className="text-4xl tracking-[1em] text-[#CD7F32] font-mono">{userInput.padEnd(sequence.length, '_')}</div>
+        )}
+      </div>
+      <div className={`grid grid-cols-3 gap-4 transition-opacity duration-500 ${phase === 'input' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        {[1,2,3,4,5,6,7,8,9].map(num => (
+          <button key={num} onClick={() => handleInput(num)} className="w-16 h-16 rounded-full bg-white/5 border border-white/10 text-xl font-light hover:bg-white/20 active:bg-[#CD7F32] transition-colors">{num}</button>
+        ))}
+        <div />
+        <button onClick={() => handleInput(0)} className="w-16 h-16 rounded-full bg-white/5 border border-white/10 text-xl font-light hover:bg-white/20 active:bg-[#CD7F32] transition-colors">0</button>
+      </div>
+    </div>
+  );
+};
+
+const NumberSequence = ({ onFinish, config }) => {
+  const [sequence, setSequence] = useState([]);
+  const [options, setOptions] = useState([]);
+  const [missingIndex, setMissingIndex] = useState(0);
+  const [round, setRound] = useState(1);
+  const [score, setScore] = useState(0);
+
+  const targetRounds = config.duration === 'mini' ? 4 : 8;
+
+  const generateSequence = useCallback(() => {
+    const diff = config.speed === 'fast' ? Math.floor(Math.random() * 10) + 5 : Math.floor(Math.random() * 5) + 2;
+    const start = Math.floor(Math.random() * 20);
+    const seq = Array.from({length: 5}, (_, i) => start + (i * diff));
+    const mIndex = Math.floor(Math.random() * 5);
+    const correctAns = seq[mIndex];
+    
+    let opts = [correctAns];
+    while(opts.length < 4) {
+      let falseOpt = correctAns + (Math.floor(Math.random() * 10) - 5) * diff;
+      if (falseOpt !== correctAns && !opts.includes(falseOpt) && falseOpt > 0) opts.push(falseOpt);
+    }
+    
+    setSequence(seq);
+    setMissingIndex(mIndex);
+    setOptions(opts.sort(() => Math.random() - 0.5));
+  }, [config.speed]);
+
+  useEffect(() => { generateSequence(); }, [generateSequence]);
+
+  const handleSelect = (num) => {
+    if (num === sequence[missingIndex]) setScore(s => s + 1);
+    
+    if (round >= targetRounds) {
+      onFinish({ aciertos: score + (num === sequence[missingIndex] ? 1 : 0), rondas: targetRounds });
+    } else {
+      setRound(r => r + 1);
+      generateSequence();
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-8 py-8 text-center">
+      <div className="space-y-2">
+        <h3 className="text-xl text-slate-400 font-light">Razonamiento (Ronda {round}/{targetRounds})</h3>
+        <p className="text-sm text-slate-500">¿Qué número falta en la secuencia?</p>
+      </div>
+      <div className="flex gap-4 text-3xl font-mono text-white bg-white/5 p-6 rounded-2xl border border-white/10">
+        {sequence.map((num, i) => (
+          <span key={i} className={i === missingIndex ? "text-[#CD7F32] animate-pulse" : ""}>
+            {i === missingIndex ? "??" : num}
+          </span>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-4 w-full max-w-xs">
+        {options.map((opt, i) => (
+          <Button key={i} onClick={() => handleSelect(opt)} variant="secondary" mode="adults" className="text-2xl font-mono py-4">
+            {opt}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const VisualStimulus = ({ onFinish, config }) => {
+  const symbols = ['▲', '■', '●', '◆', '★', '✚', '✿', '✺'];
+  const [phase, setPhase] = useState('ready'); // ready, showing, options
+  const [targetSymbol, setTargetSymbol] = useState('');
+  const [options, setOptions] = useState([]);
+  const [round, setRound] = useState(1);
+  const [score, setScore] = useState(0);
+
+  const targetRounds = config.duration === 'mini' ? 4 : 8;
+  const showTime = config.speed === 'slow' ? 800 : config.speed === 'fast' ? 200 : 500;
+
+  const startRound = useCallback(() => {
+    setPhase('ready');
+    const target = symbols[Math.floor(Math.random() * symbols.length)];
+    setTargetSymbol(target);
+    
+    let opts = [target];
+    while(opts.length < 4) {
+      let rand = symbols[Math.floor(Math.random() * symbols.length)];
+      if (!opts.includes(rand)) opts.push(rand);
+    }
+    setOptions(opts.sort(() => Math.random() - 0.5));
+
+    setTimeout(() => {
+      setPhase('showing');
+      setTimeout(() => {
+        setPhase('options');
+      }, showTime);
+    }, 1000);
+  }, [showTime]);
+
+  useEffect(() => { startRound(); }, [startRound]);
+
+  const handleSelect = (sym) => {
+    if (sym === targetSymbol) setScore(s => s + 1);
+    
+    if (round >= targetRounds) {
+      onFinish({ aciertos: score + (sym === targetSymbol ? 1 : 0), rondas: targetRounds });
+    } else {
+      setRound(r => r + 1);
+      startRound();
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-8 py-8 text-center min-h-[300px]">
+      <div className="space-y-2">
+        <h3 className="text-xl text-slate-400 font-light">Estímulo Visual (Ronda {round}/{targetRounds})</h3>
+        <p className="text-sm text-slate-500">
+          {phase === 'options' ? "¿Qué símbolo apareció?" : "Prepárate..."}
+        </p>
+      </div>
+      
+      <div className="h-40 flex items-center justify-center">
+        {phase === 'ready' && <div className="text-white text-3xl font-light">3, 2, 1...</div>}
+        {phase === 'showing' && <div className="text-8xl text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">{targetSymbol}</div>}
+        {phase === 'options' && (
+          <div className="grid grid-cols-2 gap-4">
+            {options.map((opt, i) => (
+              <button key={i} onClick={() => handleSelect(opt)} className="w-20 h-20 text-4xl text-white bg-white/5 border border-white/10 rounded-2xl hover:bg-white/20 transition-all">
+                {opt}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
+// --- APLICACIÓN PRINCIPAL ---
+
+export default function YollotlApp() {
+  const [mode, setMode] = useState(null); // 'kids' | 'adults'
+  const [currentScreen, setCurrentScreen] = useState('menu'); // 'menu', 'config', 'game', 'results'
+  const [activeGame, setActiveGame] = useState(null);
+  const [lastResults, setLastResults] = useState(null);
+  
+  const [gameConfig, setGameConfig] = useState({
+    playerName: 'Jugador',
+    duration: 'mini', // 'mini', 'full'
+    speed: 'normal' // 'slow', 'normal', 'fast'
+  });
+
+  const games = {
+    kids: [
+      { id: 'star', title: 'Atrapa la Estrella', desc: 'Coordinación visual-motora', icon: Star, component: CatchTheStar },
+      { id: 'color', title: 'Memoria de Colores', desc: 'Memoria visual secuencial', icon: RotateCcw, component: ColorMemory },
+      { id: 'count', title: 'Cuenta y Aprende', desc: 'Conteo y atención', icon: Hash, component: CountAndLearn },
+      { id: 'animal', title: 'Encuentra el Animal', desc: 'Atención selectiva visual', icon: Grid, component: FindTheAnimal }
+    ],
+    adults: [
+      { id: 'stroop', title: 'Reacción Selectiva', desc: 'Inhibición cognitiva (Stroop)', icon: Target, component: StroopTest },
+      { id: 'memory', title: 'Memoria Avanzada', desc: 'Memoria de trabajo', icon: Brain, component: AdvancedMemory },
+      { id: 'sequence', title: 'Secuencia Numérica', desc: 'Razonamiento lógico', icon: Hash, component: NumberSequence },
+      { id: 'visual', title: 'Estímulo Visual', desc: 'Atención focalizada breve', icon: Eye, component: VisualStimulus }
+    ]
+  };
+
+  const handleGameSelect = (game) => {
+    setActiveGame(game);
+    setCurrentScreen('config');
+  };
+
+  const startGame = () => {
+    setCurrentScreen('game');
+  };
+
+  const handleGameFinish = (results) => {
+    setLastResults(results);
+    setCurrentScreen('results');
+  };
+
+  const themeClasses = mode === 'kids'
+    ? "bg-[#E0F7FA] bg-gradient-to-br from-[#E0F7FA] via-[#F3E5F5] to-[#FFF9C4]"
+    : "bg-[#050A15] bg-gradient-to-br from-[#050A15] via-[#0C1B33] to-[#000000]";
+
+  return (
+    <div className={`min-h-screen w-full font-sans transition-colors duration-1000 ${themeClasses} overflow-x-hidden overflow-y-auto relative flex flex-col items-center p-4 md:p-8`}>
+      
+      <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-40 mix-blend-screen fixed">
+         <div className="absolute top-[10%] left-[20%] w-64 h-64 bg-teal-400/20 rounded-full blur-[80px]"></div>
+         <div className="absolute bottom-[20%] right-[10%] w-96 h-96 bg-purple-500/20 rounded-full blur-[100px]"></div>
+      </div>
+
+      <div className="w-full max-w-4xl relative z-10 flex flex-col min-h-full">
+        
+        {/* Header */}
+        <header className="flex justify-between items-center mb-8 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-xl shadow-lg ${mode === 'kids' ? 'bg-[#00FFCC]' : 'bg-[#CD7F32]'}`}>
+              <Brain className={`w-8 h-8 ${mode === 'kids' ? 'text-teal-900' : 'text-white'}`} />
+            </div>
+            <div>
+              <h1 className={`text-2xl font-bold tracking-tight ${mode === 'kids' ? 'text-slate-800' : 'text-white'}`}>Yóllotl</h1>
+              <p className={`text-xs uppercase tracking-widest ${mode === 'kids' ? 'text-slate-500' : 'text-[#CD7F32]'}`}>Estimulación Cognitiva</p>
+            </div>
+          </div>
+
+          {mode && currentScreen === 'menu' && (
+            <Button variant="secondary" mode={mode} onClick={() => setMode(null)}>Cambiar Modo</Button>
+          )}
+          {currentScreen !== 'menu' && currentScreen !== 'game' && mode && (
+            <Button variant="secondary" mode={mode} onClick={() => setCurrentScreen('menu')}><ArrowLeft className="w-4 h-4" /> Volver</Button>
+          )}
+          {currentScreen === 'game' && (
+            <Button variant="secondary" mode={mode} onClick={() => setCurrentScreen('menu')}><ArrowLeft className="w-4 h-4" /> Salir del Juego</Button>
+          )}
+        </header>
+
+        {/* Contenido Principal */}
+        <main className="flex-1 flex flex-col justify-center animate-in fade-in slide-in-from-bottom-4 duration-700 pb-10">
+          
+          {/* PANTALLA DE SELECCIÓN DE MODO */}
+          {!mode && (
+            <div className="grid md:grid-cols-2 gap-8 w-full max-w-2xl mx-auto">
+              <GlassPanel mode="kids" className="p-8 flex flex-col items-center text-center cursor-pointer hover:scale-105" onClick={() => { setMode('kids'); setCurrentScreen('menu'); }}>
+                <div className="w-24 h-24 bg-gradient-to-tr from-[#00FFCC] to-blue-400 rounded-full flex items-center justify-center shadow-lg shadow-teal-300/50 mb-6"><Star className="w-12 h-12 text-white fill-white" /></div>
+                <h2 className="text-3xl font-bold mb-3 text-slate-800">Modo Infantil</h2>
+                <p className="text-slate-600 mb-6">Entrenamiento amigable y colorido para el desarrollo cognitivo.</p>
+                <div className="mt-auto text-[#00E5B8] font-bold">Seleccionar →</div>
+              </GlassPanel>
+
+              <GlassPanel mode="adults" className="p-8 flex flex-col items-center text-center cursor-pointer hover:scale-105" onClick={() => { setMode('adults'); setCurrentScreen('menu'); }}>
+                <div className="w-24 h-24 bg-gradient-to-tr from-[#CD7F32] to-[#8B6508] rounded-full flex items-center justify-center shadow-lg shadow-[#CD7F32]/30 mb-6"><Activity className="w-12 h-12 text-white" /></div>
+                <h2 className="text-3xl font-light tracking-wide mb-3 text-white">Modo Clínico</h2>
+                <p className="text-slate-400 mb-6">Ejercicios sobrios para la retención y velocidad mental.</p>
+                <div className="mt-auto text-[#CD7F32] font-light tracking-widest uppercase text-sm">Seleccionar →</div>
+              </GlassPanel>
+            </div>
+          )}
+
+          {/* MENÚ DE JUEGOS */}
+          {mode && currentScreen === 'menu' && (
+            <div className="grid sm:grid-cols-2 gap-6">
+              {games[mode].map(game => (
+                <GlassPanel key={game.id} mode={mode} className="p-6 flex flex-col hover:scale-[1.02] cursor-pointer" onClick={() => handleGameSelect(game)}>
+                  <div className="flex items-start gap-4 mb-4">
+                    <div className={`p-4 rounded-2xl ${mode === 'kids' ? 'bg-white shadow-sm text-teal-500' : 'bg-white/5 border border-white/10 text-[#CD7F32]'}`}>
+                      <game.icon className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h3 className={`text-xl font-bold ${mode === 'kids' ? 'text-slate-800' : 'text-slate-200'}`}>{game.title}</h3>
+                      <p className={`text-sm mt-1 ${mode === 'kids' ? 'text-slate-500' : 'text-slate-400'}`}>{game.desc}</p>
+                    </div>
+                  </div>
+                  <div className="mt-auto pt-4 flex justify-end">
+                    <div className={`font-semibold flex items-center gap-2 ${mode === 'kids' ? 'text-teal-600' : 'text-[#CD7F32]'}`}>
+                      Configurar <Settings className="w-4 h-4"/>
+                    </div>
+                  </div>
+                </GlassPanel>
+              ))}
+            </div>
+          )}
+
+          {/* PANTALLA DE CONFIGURACIÓN */}
+          {mode && currentScreen === 'config' && activeGame && (
+            <GlassPanel mode={mode} className="p-8 max-w-md mx-auto w-full">
+              <div className="text-center mb-8">
+                <activeGame.icon className={`w-12 h-12 mx-auto mb-4 ${mode === 'kids' ? 'text-teal-500' : 'text-[#CD7F32]'}`} />
+                <h2 className={`text-2xl font-bold ${mode === 'kids' ? 'text-slate-800' : 'text-white'}`}>{activeGame.title}</h2>
+                <p className={`text-sm ${mode === 'kids' ? 'text-slate-500' : 'text-slate-400'}`}>Configuración de la sesión</p>
+              </div>
+
+              <div className="space-y-6 mb-8">
+                <div>
+                  <label className={`block text-sm font-bold mb-2 ${mode === 'kids' ? 'text-slate-700' : 'text-slate-300'}`}>Nombre del Jugador</label>
+                  <div className="relative">
+                    <User className={`absolute left-3 top-3 w-5 h-5 ${mode === 'kids' ? 'text-slate-400' : 'text-slate-500'}`} />
+                    <input type="text" value={gameConfig.playerName} onChange={(e) => setGameConfig({...gameConfig, playerName: e.target.value})}
+                      className={`w-full pl-10 pr-4 py-3 rounded-xl outline-none transition-colors ${mode === 'kids' ? 'bg-white/80 border-2 border-teal-100 focus:border-teal-400 text-slate-800' : 'bg-white/5 border border-white/10 focus:border-[#CD7F32] text-white'}`} />
+                  </div>
+                </div>
+
+                <div>
+                  <label className={`block text-sm font-bold mb-2 ${mode === 'kids' ? 'text-slate-700' : 'text-slate-300'}`}>Tipo de Sesión</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button onClick={() => setGameConfig({...gameConfig, duration: 'mini'})} className={`py-3 rounded-xl font-medium transition-all ${gameConfig.duration === 'mini' ? (mode === 'kids' ? 'bg-teal-100 text-teal-800 border-2 border-teal-400' : 'bg-[#CD7F32]/20 text-[#CD7F32] border border-[#CD7F32]') : (mode === 'kids' ? 'bg-white text-slate-500 border-2 border-transparent' : 'bg-white/5 text-slate-400 border border-transparent')}`}>Mini Juego</button>
+                    <button onClick={() => setGameConfig({...gameConfig, duration: 'full'})} className={`py-3 rounded-xl font-medium transition-all ${gameConfig.duration === 'full' ? (mode === 'kids' ? 'bg-teal-100 text-teal-800 border-2 border-teal-400' : 'bg-[#CD7F32]/20 text-[#CD7F32] border border-[#CD7F32]') : (mode === 'kids' ? 'bg-white text-slate-500 border-2 border-transparent' : 'bg-white/5 text-slate-400 border border-transparent')}`}>Completo</button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className={`block text-sm font-bold mb-2 ${mode === 'kids' ? 'text-slate-700' : 'text-slate-300'}`}>Velocidad / Dificultad</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {['slow', 'normal', 'fast'].map(spd => (
+                      <button key={spd} onClick={() => setGameConfig({...gameConfig, speed: spd})} className={`py-2 rounded-xl text-sm font-medium transition-all capitalize ${gameConfig.speed === spd ? (mode === 'kids' ? 'bg-teal-100 text-teal-800 border-2 border-teal-400' : 'bg-[#CD7F32]/20 text-[#CD7F32] border border-[#CD7F32]') : (mode === 'kids' ? 'bg-white text-slate-500 border-2 border-transparent' : 'bg-white/5 text-slate-400 border border-transparent')}`}>
+                        {spd === 'slow' ? 'Lento' : spd === 'fast' ? 'Rápido' : 'Normal'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <Button variant="primary" mode={mode} onClick={startGame} className="w-full">
+                <Play className="w-5 h-5 fill-current" /> Iniciar Entrenamiento
+              </Button>
+            </GlassPanel>
+          )}
+
+          {/* PANTALLA DE JUEGO */}
+          {mode && currentScreen === 'game' && activeGame && (
+            <GlassPanel mode={mode} className="p-2 md:p-8 relative">
+              <activeGame.component onFinish={handleGameFinish} config={gameConfig} mode={mode} />
+            </GlassPanel>
+          )}
+
+          {/* PANTALLA DE RESULTADOS */}
+          {mode && currentScreen === 'results' && (
+            <GlassPanel mode={mode} className="p-10 max-w-md mx-auto w-full text-center">
+              <div className="flex justify-center mb-6">
+                <div className={`p-4 rounded-full ${mode === 'kids' ? 'bg-green-100 text-green-500' : 'bg-[#CD7F32]/20 text-[#CD7F32]'}`}><Award className="w-16 h-16" /></div>
+              </div>
+              <h2 className={`text-3xl font-bold mb-2 ${mode === 'kids' ? 'text-slate-800' : 'text-white'}`}>¡Terminado!</h2>
+              <p className={`mb-8 ${mode === 'kids' ? 'text-slate-500' : 'text-slate-400'}`}>
+                Gran trabajo, <strong className={mode === 'kids' ? 'text-teal-600' : 'text-[#CD7F32]'}>{gameConfig.playerName || 'Jugador'}</strong>.
+              </p>
+
+              <div className="space-y-4 mb-8 text-left">
+                {Object.entries(lastResults || {}).map(([key, value]) => (
+                  <div key={key} className={`flex justify-between p-4 rounded-xl ${mode === 'kids' ? 'bg-white/50' : 'bg-white/5'}`}>
+                    <span className="capitalize text-slate-500 font-medium">{key}</span>
+                    <span className={`font-bold ${mode === 'kids' ? 'text-teal-600' : 'text-[#CD7F32]'}`}>{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-4 justify-center">
+                <Button variant="secondary" mode={mode} onClick={() => setCurrentScreen('menu')}>Volver al Menú</Button>
+                <Button variant="primary" mode={mode} onClick={() => setCurrentScreen('game')}><RotateCcw className="w-4 h-4" /> Reintentar</Button>
+              </div>
+            </GlassPanel>
+          )}
+
+        </main>
+      </div>
+    </div>
+  );
+}
