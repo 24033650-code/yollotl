@@ -1,2 +1,0 @@
-# yollotl
-juego interactivo web
